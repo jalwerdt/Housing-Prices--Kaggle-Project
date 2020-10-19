@@ -1,0 +1,1028 @@
+---
+title: 'Kaggle: House Prices'
+author: "Jessie Alwerdt"
+date: "10/14/2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Using a Kaggle dataset: House Prices: Advanced Regression Techniques / Predict sales prices and practice feature engineering, RFs, and gradient boosting
+
+# https://www.kaggle.com/c/house-prices-advanced-regression-techniques
+
+
+## Packages to load
+
+```{r include = FALSE, warning = FALSE}
+# Package names
+packages <- c("ggplot2", "readxl", "dplyr", "tidyr", "finalfit", "tidyverse", "DataExplorer", "knitr", "VIM", "gridExtra", "missForest", "doParallel", "arsenal", "magrittr", "randomForestSRC", "party", "ranger", "vtreat", "WVPlots", "rqdatatable", "Metrics", "Boruta", "mlbench", "extremevalues", "psych", "rcompanion", "dlookr", "fsdaR", "rJava", "caret", "DescTools", "party", "gbm", "ranger", "glmnet", "mboost", "rqPen", "elasticnet")
+
+# Install packages not yet installed
+installed_packages <- packages %in% rownames(installed.packages())
+if (any(installed_packages == FALSE)) {
+  install.packages(packages[!installed_packages])
+}
+# Packages loading
+invisible(lapply(packages, library, character.only = TRUE))
+```
+
+
+### Set working directory to obtain the train and test set
+
+```{r}
+
+setwd("C:/Users/alwer/Documents/Data Syndicate Projects DSS - FB group/Kaggle 1")
+
+```
+
+## Import the data
+
+```{r}
+
+train <- read.csv("train.csv", stringsAsFactors = F)
+test <- read.csv("test.csv", stringsAsFactors = F)
+
+```
+
+# Data Cleaning
+
+### View the structure and summary statistics of the train data set
+
+```{r}
+
+str(train)
+summary(train)
+
+```
+### Variables that need to be changed to categorical: 
+
+* MSSubClass 
+* Shape
+* LandContour
+* Utilities
+* LotConfig
+* LandSlope
+* Neighborhood
+* Condition1
+* Condition2
+* BldgType
+* HouseStyle
+* RoofStyle
+* RoofMatl
+* Exterior1st
+* Exterior2nd
+* MasVnrType
+* ExterQual
+* ExterCond
+* Foundation
+* BsmtQual
+* BsmtCond
+* BsmtExposure
+* BsmtFinType1
+* BsmtFinType2
+* Heating
+* HeatingQC
+* CentralAir
+* Electrical
+* BsmtFullBath
+* BsmtHalfBath
+* FullBath
+* HalfBath
+* BedroomAbvGr
+* KitchenAbvGr
+* KitchenQual
+* Functional
+* TotRmsAbvGrd
+* Fireplaces
+* FireplaceQu
+* GarageType
+* GarageFinish
+* GarageQual
+* GarageCond
+* PavedDrive
+* PoolQC
+* Fence
+* MiscFeature
+* SaleType
+* SaleCondition
+* GarageCars
+* MoSold
+
+```{r}
+
+train <- train %>% 
+  mutate_at(vars(MSSubClass, MSZoning, Street, Alley, LotShape, LandContour, Utilities, LotConfig, LandSlope, Neighborhood, Condition1, Condition2, BldgType, HouseStyle, RoofStyle, RoofMatl, Exterior1st, Exterior2nd, MasVnrType, ExterQual, ExterCond, Foundation, BsmtQual, BsmtCond, BsmtExposure, BsmtFinType1, BsmtFinType2, Heating, HeatingQC, CentralAir, Electrical,  BsmtFullBath, BsmtHalfBath, FullBath, HalfBath, BedroomAbvGr, KitchenAbvGr, KitchenQual, Functional, TotRmsAbvGrd, Fireplaces, FireplaceQu, GarageType, GarageFinish, GarageQual, GarageCond, PavedDrive, PoolQC, Fence, MiscFeature, SaleType, SaleCondition, GarageCars, MoSold), factor)
+
+```
+
+### Variables that need to be changed to ordinal
+
+* OverallQual
+* OverallCond
+
+```{r}
+
+train <- train %>%
+  mutate_at(vars(OverallQual, OverallCond), factor, ordered = TRUE)
+
+```
+
+### Check that the variables were properly converted in the train data set
+
+```{r, echo=F, include=FALSE}
+
+str(train)
+
+```
+### Repeat on the test set
+
+```{r}
+
+test <- test %>% 
+  mutate_at(vars(MSSubClass, MSZoning, Street, Alley, LotShape, LandContour, Utilities, LotConfig, LandSlope, Neighborhood, Condition1, Condition2, BldgType, HouseStyle, RoofStyle, RoofMatl, Exterior1st, Exterior2nd, MasVnrType, ExterQual, ExterCond, Foundation, BsmtQual, BsmtCond, BsmtExposure, BsmtFinType1, BsmtFinType2, Heating, HeatingQC, CentralAir, Electrical,  BsmtFullBath, BsmtHalfBath, FullBath, HalfBath, BedroomAbvGr, KitchenAbvGr, KitchenQual, Functional, TotRmsAbvGrd, Fireplaces, FireplaceQu, GarageType, GarageFinish, GarageQual, GarageCond, PavedDrive, PoolQC, Fence, MiscFeature, SaleType, SaleCondition, GarageCars, MoSold), factor)
+
+```
+
+
+```{r}
+
+test<- test %>%
+  mutate_at(vars(OverallQual, OverallCond), factor, ordered = TRUE)
+
+```
+
+
+```{r}
+
+str(test)
+
+```
+
+### Make a new variable that is the age of the house (year sold - year built)
+
+```{r}
+
+train$House_Age <- train$YrSold - train$YearBuilt
+test$House_Age <- test$YrSold - test$YearBuilt
+
+```
+
+
+### Now that new variables were calculated, make year sold into a factor variable
+
+```{r}
+
+train <- train %>%
+  mutate_at(vars(YrSold), factor)
+
+test <- test %>%
+  mutate_at(vars(YrSold), factor)
+
+```
+            
+### Check to see if properly coverted
+            
+```{r}
+
+str(train$YrSold)
+str(test$YrSold)
+
+```
+### Create an interactive plot of the variables using 'DataExplorer' R package
+
+* Cui, B. (2020). DataExplorer: Automate Data Exploration and Treatment (0.8.1) [Computer software]. https://CRAN.R-project.org/package=DataExplorer
+
+
+```{r, fig.cap = "Interactive Plot to Examine Variables"}
+
+data_list <- list(train)
+plot_str(data_list, type = "r")
+
+```
+# Missing Data
+
+### Examine the amount of missing data in the train and test data sets
+
+* There are 5.8% missing observations in the train data set
+
+* There are 5.9% missing observations in the test data set
+
+
+```{r Missing Data, fig.cap = "Examine Missing Data in Both the Train and Test Sets"}
+
+introduce(train)
+introduce(test)
+plot_intro(train)
+plot_intro(test)
+
+```
+
+### Plot missing values for the train set
+
+```{r}
+
+plot_missing(train, missing_only = TRUE)
+
+```
+### Plot missing values for the test set
+
+```{r}
+
+plot_missing(test, missing_only = TRUE)
+
+```
+### Indicated above, the test set has more variables with missing data compared to the train data set. The test set will have to be further examined for preparation.
+
+### Examine missing data patterns and see if they are missing at random
+
+### Tools are great for smaller data sets but was hard to pick up patterns with so many variables
+
+### Keep the list of explanatory variables in case they are needed in the future
+
+```{r, include = F}
+
+train %>%
+  missing_plot()
+
+```
+
+### Get rid of alley / MiscFeature / PoolQC  / Utilities is only 1 factor - delete
+
+```{r}
+
+train_clean <- select(train, -c(PoolQC, Alley, MiscFeature, Utilities))
+test_clean <- select(test, -c(PoolQC, Alley, MiscFeature, Utilities))
+
+```
+
+### Check to see if they were deleted properly
+
+```{r}
+
+plot_missing(train_clean, missing_only = TRUE)
+plot_missing(test_clean, missing_only = TRUE)
+
+```
+
+### Correct variables where NA is actually "None" or numerical 0
+
+```{r Correct NAs}
+
+train_clean2 <- train_clean %>% 
+  mutate(FireplaceQu = as.character(FireplaceQu), Fence = as.character(Fence), BsmtExposure = as.character(BsmtExposure), BsmtFinType2 = as.character(BsmtFinType2), BsmtQual = as.character(BsmtQual), BsmtCond = as.character(BsmtCond), BsmtFinType1 = as.character(BsmtFinType1), GarageType = as.character(GarageType), GarageFinish = as.character(GarageFinish), GarageQual = as.character(GarageQual), GarageCond = as.character(GarageCond)) %>% 
+  replace_na(list(FireplaceQu = "None", Fence = "None", BsmtExposure = "None", BsmtFinType2 = "None", BsmtQual = "None", BsmtCond = "None", BsmtFinType1 = "None", GarageType = "None", GarageFinish = "None", GarageQual = "None", GarageCond = "None", LotFrontage = 0, BsmtFinSF1 = 0, BsmtFinSF2 = 0, BsmtUnfSF = 0, TotalBsmtSF = 0)) %>% 
+  mutate(FireplaceQu = as.factor(FireplaceQu), Fence = as.factor(Fence), BsmtExposure = as.factor(BsmtExposure), BsmtFinType2 = as.factor(BsmtFinType2), BsmtQual = as.factor(BsmtQual), BsmtCond = as.factor(BsmtCond), BsmtFinType1 = as.factor(BsmtFinType1), GarageType = as.factor(GarageType), GarageFinish = as.factor(GarageFinish), GarageQual = as.factor(GarageQual), GarageCond = as.factor(GarageCond), GarageArea = as.numeric(GarageArea), SalePrice = as.numeric(SalePrice))
+
+test_clean2 <- test_clean %>% 
+  mutate(FireplaceQu = as.character(FireplaceQu), Fence = as.character(Fence), BsmtExposure = as.character(BsmtExposure), BsmtFinType2 = as.character(BsmtFinType2), BsmtQual = as.character(BsmtQual), BsmtCond = as.character(BsmtCond), BsmtFinType1 = as.character(BsmtFinType1), GarageType = as.character(GarageType), GarageFinish = as.character(GarageFinish), GarageQual = as.character(GarageQual), GarageCond = as.character(GarageCond)) %>% 
+  replace_na(list(FireplaceQu = "None", Fence = "None", BsmtExposure = "None", BsmtFinType2 = "None", BsmtQual = "None", BsmtCond = "None", BsmtFinType1 = "None", GarageType = "None", GarageFinish = "None", GarageQual = "None", GarageCond = "None", LotFrontage = 0, BsmtFinSF1 = 0, BsmtFinSF2 = 0, BsmtUnfSF = 0, TotalBsmtSF = 0)) %>% 
+  mutate(FireplaceQu = as.factor(FireplaceQu), Fence = as.factor(Fence), BsmtExposure = as.factor(BsmtExposure), BsmtFinType2 = as.factor(BsmtFinType2), BsmtQual = as.factor(BsmtQual), BsmtCond = as.factor(BsmtCond), BsmtFinType1 = as.factor(BsmtFinType1), GarageType = as.factor(GarageType), GarageFinish = as.factor(GarageFinish), GarageQual = as.factor(GarageQual), GarageCond = as.factor(GarageCond), GarageArea = as.numeric(GarageArea))
+
+```
+
+### Examine missing again and make sure variables that are left are truly missing and will be imputed
+
+```{r}
+
+introduce(train_clean2)
+introduce(test_clean2)
+
+plot_intro(train_clean2)
+plot_intro(test_clean2)
+
+plot_missing(train_clean2, missing_only = TRUE)
+plot_missing(test_clean2, missing_only = TRUE)
+
+```
+
+# Use Imputation with the 'missForest' R Package.This R package is known to work well on mixed-type data. 
+
+* Stekhoven, D. J. (2013). missForest: Nonparametric Missing Value Imputation using Random Forest (1.4) [Computer software]. https://CRAN.R-project.org/package=missForest
+
+* Dávila, S., & Rosado, H. (2017). Performance of missing value imputation schemes in health-related data. IIE Annual Conference. Proceedings; Norcross, 2105–2110.
+
+* Stekhoven, D. J., & Bühlmann, P. (2012). MissForest—Non-parametric missing value imputation for mixed-type data. Bioinformatics, 28(1), 112–118. https://doi.org/10.1093/bioinformatics/btr597
+
+* Waljee, A. K., Mukherjee, A., Singal, A. G., Zhang, Y., Warren, J., Balis, U., Marrero, J., Zhu, J., & Higgins, P. D. (2013). Comparison of imputation methods for missing laboratory data in medicine. BMJ Open, 3(8), e002847. https://doi.org/10.1136/bmjopen-2013-002847
+
+* Wei, R., Wang, J., Su, M., Jia, E., Chen, T., & Ni, Y. (2017). Missing Value Imputation Approach for Mass Spectrometry-based Metabolomics Data. BioRxiv, 171967. https://doi.org/10.1101/171967
+
+
+### Impute missing vars from MSZoning, Functional, Exterior1st, Exterior2nd, KitchenQual, GarageCars, GarageArea, SaleType, BsmtFullBath, and BsmtHalfBath
+
+```{r Imputation with random forest - train set}
+
+registerDoParallel(cores = 4)
+
+set.seed(8374)
+
+#Used to establish ntree of 500, mtry = 100 due to high-dimensional data and parallelize
+train.imp <- missForest(train_clean2, verbose = FALSE, parallelize = "variables")
+
+train.imp$OOBerror
+
+```
+### Now impute on the test set. Did not combine the train and test set together because the test set is supposed to be completely untouched and avoid any data leakage.
+
+```{r Imputation with random forest - test set}
+
+set.seed(8374)
+#Used to establish ntree of 500, mtry = 100 due to high-dimensional data and parallelize
+test.imp <- missForest(test_clean2, verbose = FALSE, parallelize = "variables")
+
+test.imp$OOBerror
+
+```
+### Save each imputed data set
+
+```{r}
+
+write.csv(train.imp[["ximp"]], file = "train_imp.csv")
+write.csv(test.imp[["ximp"]], file = "test_imp.csv")
+
+```
+
+### Bring data back in
+
+```{r}
+
+train_imputed <- train.imp[["ximp"]]
+test_imputed <- test.imp[["ximp"]]
+
+```
+
+### Check to see if all missing data has been imputated
+
+```{r, fig.cap = "Checking Missing Data in the Newly Imputated Data Sets"}
+
+introduce(train_imputed)
+introduce(test_imputed)
+plot_intro(train_imputed)
+plot_intro(test_imputed)
+
+```
+
+### Check factors and numerical data types
+
+```{r, include = F}
+
+str(train_imputed)
+summary(train_imputed)
+str(test_imputed)
+summary(test_imputed)
+
+```
+
+### Make sure that the train and test data sets have the same variables and variable types
+
+```{r}
+
+comparedf(train_imputed, test_imputed)
+
+```
+```{r echo = F, results = 'hide', include=T}
+
+summary(comparedf(train_imputed, test_imputed))
+
+```
+
+
+```{r, echo = F, include = FALSE, fig.cap = "Distributions of the Categorical Data"}
+
+## Examine the distributions of the categorical data
+
+graphics.off()
+par("mar")
+par(mar=c(1,1,1,1))
+
+plot_bar(train_imputed$MSSubClass)
+str(train_imputed$MSSubClass) #15 Levels
+plot_bar(train_imputed$Neighborhood)  
+str(train_imputed$Neighborhood) #25 Levels
+plot_bar(train_imputed$Exterior1st)
+str(train_imputed$Exterior1st) #15 Levels
+plot_bar(train_imputed$Exterior2nd)
+str(train_imputed$Exterior2nd) #16 Levels
+plot_bar(train_imputed$MoSold)
+str(train_imputed$MoSold) #12 Levels
+plot_bar(train_imputed)
+
+```
+# Use Vtreat to deal with the categorical data which will turn these variables into numeric variables. This will also allow for any model to handle the data.
+
+* Mount, J., Zumel, N., & LLC, W.-V. (2020). vtreat: A Statistically Sound “data.frame” Processor/Conditioner (1.6.1) [Computer software]. https://CRAN.R-project.org/package=vtreat
+
+
+```{r}
+
+set.seed(1847)
+
+train_prepared <- mkCrossFrameNExperiment(
+  dframe = train_imputed,
+  varlist = setdiff(colnames(train_imputed), 'SalePrice'),
+  outcomename = 'SalePrice',
+  verbose = FALSE, 
+  rareCount = 5,
+  rareSig=c())
+
+```
+
+
+```{r}
+
+plan <- train_prepared$treatments
+
+# get the performance statistics on the derived variables.
+sf <- train_prepared$treatments$scoreFrame
+
+# get the simulated out of sample transformed training data.frame
+
+treatedTrain <- train_prepared$crossFrame
+
+```
+
+### Get newvars to keep
+
+```{r}
+
+newVars <- sf$varName[sf$sig<1/nrow(sf)]
+
+```
+
+### In future models, as.formula(f) will be used to get the recommended variables from vtreat (f will be the filter)
+
+```{r}
+
+f <- paste('SalePrice', 
+          paste(newVars, collapse = ' + '), 
+          sep = ' ~ ')
+
+f <- noquote(f)
+
+f <- as.formula(f)
+
+```
+
+
+### Make a new dataset with the new variables only
+
+```{r}
+
+treatedTrain <- treatedTrain[c(newVars, "SalePrice")]
+
+```
+
+### Will also apply to test set
+
+```{r}
+
+treatedTest <- vtreat::prepare(plan, test_imputed, 
+                               pruneSig = NULL, 
+                               varRestriction = newVars)
+
+```
+
+### Now have treatedTrain and treatedTest for future models
+
+### Check to find differences between the two new prepared datasets (test_prepared and train_prepared)
+
+### Make sure that the train and test data sets have the same variables and variable types
+
+
+```{r}
+
+comparedf(treatedTrain, treatedTest)
+
+```
+
+```{r Check if train and test set match, echo=F, include=F, results='hide'}
+
+summary(comparedf(treatedTrain, treatedTest))
+
+```
+
+## Check the skewness of the outcome variable 'SalePrice'
+
+
+```{r Skewness in Sale Price, fig.cap = "Describe SalePrice"}
+
+skew(treatedTrain$SalePrice)
+rcompanion::plotNormalHistogram(treatedTrain$SalePrice)
+qqnorm(treatedTrain$SalePrice, ylab = "Sample Quantiles for SalePrice")
+qqline(treatedTrain$SalePrice, col = "red")
+
+```
+### It is evident that the outcome variable is rightly skewed. 
+### Therefore, apply a log transformation and plot again.
+
+```{r Checking Sale Price}
+
+treatedTrain$SalePrice <- log(treatedTrain$SalePrice)
+
+rcompanion::plotNormalHistogram(treatedTrain$SalePrice)
+
+```
+### Now look at the other variables to recognize any major skewness or kurtosis
+### Using the 'dlookr' R package
+
+* Ryu, C. (2020). dlookr: Tools for Data Diagnosis, Exploration, Transformation (0.3.13) [Computer software]. https://CRAN.R-project.org/package=dlookr
+
+
+```{r Normality plots to identify skewness in train set, echo=F, include=FALSE}
+
+dlookr::plot_normality(treatedTrain)
+
+```
+
+## List of variables that need to be log-transformed:
+
+* LotFrontage
+* LotArea
+* YearBuilt (left skewed)
+* MasVnrArea
+* BsmtFinSF1
+* BsmtUnfSF
+* TotalBsmtSF
+* X1stFlrSF
+* X2ndFlrSF
+* GrLivArea
+* GarageYrBlt (left skewed)
+* GarageArea
+* WoodDeckSF
+* OpenPorchSF
+* EnclosedPorch
+* ScreenPorch
+* PoolArea
+* House_Age
+
+```{r Transform variables in train set, include=FALSE}
+
+vars <- c("LotFrontage", "LotArea", "MasVnrArea", "BsmtFinSF1", "BsmtUnfSF", "TotalBsmtSF", "X1stFlrSF", "X2ndFlrSF", "GrLivArea", "GarageArea", "WoodDeckSF", "OpenPorchSF", "EnclosedPorch", "ScreenPorch", "PoolArea", "House_Age")
+
+treatedTrain[vars] <- treatedTrain[vars] + 1
+
+treatedTrain[vars] <- lapply(treatedTrain[vars], log)
+
+```
+
+
+```{r Transform left skewed variables in train set, include=FALSE}
+
+vars <- c("YearBuilt", "GarageYrBlt")
+
+treatedTrain[vars] <- lapply(treatedTrain[vars], sqrt)
+
+```
+
+
+### Now apply to the test set
+
+```{r Transform variables in test set, include=FALSE}
+
+vars <- c("LotFrontage", "LotArea", "MasVnrArea", "BsmtFinSF1", "BsmtUnfSF", "TotalBsmtSF", "X1stFlrSF", "X2ndFlrSF", "GrLivArea", "GarageArea", "WoodDeckSF", "OpenPorchSF", "EnclosedPorch", "ScreenPorch", "PoolArea", "House_Age")
+
+treatedTest[vars] <- treatedTest[vars] + 1
+
+treatedTest[vars] <- lapply(treatedTest[vars], log)
+
+```
+
+```{r Transform left skewed variables in test set, include=FALSE}
+
+vars <- c("YearBuilt", "GarageYrBlt")
+
+treatedTest[vars] <- lapply(treatedTest[vars], sqrt)
+
+```
+
+
+## Going to replace any outliers by winsorizing the values
+
+
+```{r Winsorize train set}
+
+treatedTrain_matrix <- data.matrix(treatedTrain)
+
+winsorize_data <- Winsorize(treatedTrain_matrix)
+
+```
+
+### Revert back to a data frame
+
+```{r}
+
+treatedTrain <- as.data.frame(winsorize_data)
+
+```
+
+### Do the same for the test data
+
+```{r Winsorize test set}
+
+treatedTest_matrix <- data.matrix(treatedTest)
+
+winsorize_data_test <- Winsorize(treatedTest_matrix, na.rm = TRUE)
+
+```
+
+```{r}
+
+treatedTest <- as.data.frame(winsorize_data_test)
+
+```
+
+
+# Data is prepared: Baseline Testing
+
+### Time for some baseline testing
+
+```{r RMSE Baseline}
+
+# Baseline model - predict the mean of the training data
+best.guess <- mean(treatedTrain$SalePrice) 
+
+best.guess
+
+RMSE.baseline_train <- sqrt(mean((best.guess-treatedTrain$SalePrice)^2))
+
+RMSE.baseline_train
+
+```
+
+```{r MSE Baseline}
+
+MSE.baseline_train <- (mean((best.guess-treatedTrain$SalePrice)^2))
+MSE.baseline_train
+
+```
+
+```{r MAE Baseline}
+
+MAE.baseline_train <- mean(abs(best.guess-treatedTrain$SalePrice))
+MAE.baseline_train
+
+```
+
+# Use caret to try several different models and tune
+
+* Kuhn, M., Wing, J., Weston, S., Williams, A., Keefer, C., Engelhardt, A., Cooper, T., Mayer, Z., Kenkel, B., R Core Team, Benesty, M., Lescarbeau, R., Ziem, A., Scrucca, L., Tang, Y., Candan, C., & Hunt, T. (2020). caret: Classification and Regression Training (6.0-86) [Computer software]. https://CRAN.R-project.org/package=caret
+
+## Start with an empty model to get an idea of improvement.
+
+```{r Empty, echo = F, warning = FALSE}
+
+cl <- makeCluster(6)
+registerDoParallel(cl)
+opts <- list(preschedule=TRUE)
+clusterSetRNGStream(cl, 5364)
+
+train.control <- trainControl(
+                           method = "repeatedcv",  number = 5,  repeats = 5, search = 'random')
+
+#tunegrid <- expand.grid(mtry = seq(3:10))
+
+cl <- makeCluster(6)
+registerDoParallel(cl)
+opts <- list(preschedule=TRUE)
+clusterSetRNGStream(cl, 5364)
+
+SalePrice_null = train(
+  SalePrice ~ .,
+  data = treatedTrain,
+  method = "null",
+  preProc = c("center", "scale"),
+  trControl = train.control,
+  #tuneLength  = 100, 
+  #tuneGrid = tunegrid,
+  metric='RMSE'
+)
+
+stopCluster(cl)
+
+SalePrice_null
+
+```
+
+## 'party' R package
+
+* Hothorn, T., Hornik, K., Strobl, C., & Zeileis, A. (2020). party: A Laboratory for Recursive Partytioning (1.3-5) [Computer software]. https://CRAN.R-project.org/package=party
+
+
+```{r Party, echo = T, warning=FALSE}
+
+cl <- makeCluster(6)
+registerDoParallel(cl)
+opts <- list(preschedule=TRUE)
+clusterSetRNGStream(cl, 5364)
+
+train.control <- trainControl(
+                           method = "repeatedcv",  number = 5,  repeats = 5, search = 'random')
+
+tunegrid <- expand.grid(mtry = seq(3:10))
+
+set.seed(93746)
+SalePrice_cforest = train(
+  SalePrice ~ .,
+  data = treatedTrain,
+  method = "cforest",
+  preProc = c("center", "scale"),
+  trControl = train.control,
+  tuneLength  = 100, 
+  tuneGrid = tunegrid,
+  metric='RMSE'
+)
+
+stopCluster(cl)
+
+SalePrice_cforest
+```
+
+## Using "gbm" R package
+
+* Greenwell, B., Boehmke, B., Cunningham, J., & Developers  (https://github.com/gbm-developers), G. B. M. (2020). gbm: Generalized Boosted Regression Models (2.1.8) [Computer software]. https://CRAN.R-project.org/package=gbm
+
+
+```{r GBM, echo=TRUE, warning=FALSE, results = FALSE}
+
+cl <- makeCluster(6)
+registerDoParallel(cl)
+opts <- list(preschedule=TRUE)
+clusterSetRNGStream(cl, 5364)
+
+train.control <- trainControl(
+                           method = "repeatedcv",  number = 5,  repeats = 5, search = 'random')
+
+
+set.seed(0394)
+
+SalePrice_gbm = train(
+  SalePrice ~ .,
+  data = treatedTrain,
+  method = "gbm",
+  preProc = c("center", "scale"),
+  trControl = train.control,
+  #tuneLength  = 100, 
+  #tuneGrid = tunegrid,
+  metric='RMSE'
+)
+
+```
+
+```{r GBM results}
+
+stopCluster(cl)
+
+SalePrice_gbm
+
+```
+
+## Use the "ranger" R Package
+
+* Wright, M. N., Wager, S., & Probst, P. (2020). ranger: A Fast Implementation of Random Forests (0.12.1) [Computer software]. https://CRAN.R-project.org/package=ranger
+
+
+```{r Ranger, echo = F, warning=FALSE}
+
+cl <- makeCluster(6)
+registerDoParallel(cl)
+opts <- list(preschedule=TRUE)
+clusterSetRNGStream(cl, 5364)
+
+train.control <- trainControl(
+                           method = "repeatedcv",  number = 5,  repeats = 5, search = 'random')
+
+
+set.seed(19484)
+
+SalePrice_ranger = train(
+  SalePrice ~ .,
+  data = treatedTrain,
+  method = "ranger",
+  preProc = c("center", "scale"),
+  trControl = train.control,
+  #tuneLength  = 100, 
+  #tuneGrid = tunegrid,
+  metric='RMSE'
+)
+
+stopCluster(cl)
+
+SalePrice_ranger
+
+```
+
+
+## Use "glmnet" R package
+
+* Friedman, J., Hastie, T., Tibshirani, R., Narasimhan, B., Tay, K., Simon, N., & Qian, J. (2020). glmnet: Lasso and Elastic-Net Regularized Generalized Linear Models (4.0-2) [Computer software]. https://CRAN.R-project.org/package=glmnet
+
+
+```{r Glmnet, echo = T, warning=FALSE}
+
+train.control <- trainControl(
+                           method = "repeatedcv",  number = 5,  repeats = 5, search = 'random')
+
+#tunegrid <- expand.grid(mtry = seq(3:10))
+
+cl <- makeCluster(6)
+registerDoParallel(cl)
+opts <- list(preschedule=TRUE)
+clusterSetRNGStream(cl, 2334)
+
+SalePrice_glmnet = train(
+  SalePrice ~ .,
+  data = treatedTrain,
+  method = "glmnet",
+  preProc = c("center", "scale"),
+  trControl = train.control,
+  #tuneLength  = 100, 
+  #tuneGrid = tunegrid,
+  metric='RMSE'
+)
+
+stopCluster(cl)
+
+SalePrice_glmnet
+
+```
+
+```{r, echo = F, include = FALSE}
+
+# best parameter
+SalePrice_glmnet$bestTune
+
+# best coefficient
+coef(SalePrice_glmnet$finalModel, SalePrice_glmnet$bestTune$lambda)
+varImp(SalePrice_glmnet, scale = F)
+
+```
+
+
+## Use "mboost" R Package
+
+* Hothorn, T., Buehlmann, P., Kneib, T., Schmid, M., Hofner, B., Sobotka, F., Scheipl, F., & Mayr, A. (2020). mboost: Model-Based Boosting (2.9-3) [Computer software]. https://CRAN.R-project.org/package=mboost
+
+```{r mboost, echo = T, warning=FALSE}
+
+cl <- makeCluster(6)
+registerDoParallel(cl)
+opts <- list(preschedule=TRUE)
+clusterSetRNGStream(cl, 5364)
+
+train.control <- trainControl(
+                           method = "repeatedcv",  number = 5,  repeats = 5, search = 'random')
+
+#tunegrid <- expand.grid(mtry = seq(3:10))
+
+set.seed(8494)
+
+SalePrice_glmboost = train(
+  SalePrice ~ .,
+  data = treatedTrain,
+  method = "glmboost",
+  preProc = c("center", "scale"),
+  trControl = train.control,
+  #tuneLength  = 100, 
+  #tuneGrid = tunegrid,
+  metric='RMSE'
+)
+
+stopCluster(cl)
+
+SalePrice_glmboost
+
+```
+
+
+## Use rqPen r package
+
+* Sherwood, B., & Maidman, A. (2020). rqPen: Penalized Quantile Regression (2.2.2) [Computer software]. https://CRAN.R-project.org/package=rqPen
+
+```{r rqlasso, echo = T, warning = FALSE}
+
+cl <- makeCluster(6)
+registerDoParallel(cl)
+opts <- list(preschedule=TRUE)
+clusterSetRNGStream(cl, 5364)
+
+train.control <- trainControl(
+                           method = "repeatedcv",  number = 5,  repeats = 5, search = 'random')
+
+#tunegrid <- expand.grid(mtry = seq(3:10))
+
+set.seed(35621)
+
+SalePrice_rqlasso = train(
+  SalePrice ~ .,
+  data = treatedTrain,
+  method = "rqlasso",
+  preProc = c("center", "scale"),
+  trControl = train.control,
+  #tuneLength  = 100, 
+  #tuneGrid = tunegrid,
+  metric='RMSE'
+)
+
+stopCluster(cl)
+
+SalePrice_rqlasso
+
+```
+
+
+## Use "elasticnet" R Package
+
+* Hastie, H. Z. and T. (2020). elasticnet: Elastic-Net for Sparse Estimation and Sparse PCA (1.3) [Computer software]. https://CRAN.R-project.org/package=elasticnet
+
+```{r elasticnet, echo = T, warning = FALSE}
+
+cl <- makeCluster(6)
+registerDoParallel(cl)
+opts <- list(preschedule=TRUE)
+clusterSetRNGStream(cl, 5364)
+
+train.control <- trainControl(
+                           method = "repeatedcv",  number = 5,  repeats = 5, search = 'random')
+
+#tunegrid <- expand.grid(mtry = seq(3:10))
+
+set.seed(12736)
+
+SalePrice_ridge = train(
+  SalePrice ~ .,
+  data = treatedTrain,
+  method = "ridge",
+  preProc = c("center", "scale"),
+  #tuneLength  = 100, 
+  #tuneGrid = tunegrid,
+  metric='RMSE'
+)
+
+stopCluster(cl)
+
+SalePrice_ridge
+
+```
+
+
+## Use Lasso
+
+
+```{r Lasso, echo = T}
+
+cl <- makeCluster(6)
+registerDoParallel(cl)
+opts <- list(preschedule=TRUE)
+clusterSetRNGStream(cl, 5364)
+
+train.control <- trainControl(
+                           method = "repeatedcv",  number = 5,  repeats = 5, search = 'random')
+
+#tunegrid <- expand.grid(mtry = seq(3:10))
+
+set.seed(777)
+
+SalePrice_lasso = train(
+  SalePrice ~ .,
+  data = treatedTrain,
+  method = "lasso",
+  preProc = c("center", "scale"), 
+    #tuneLength  = 100, 
+  #tuneGrid = tunegrid,
+  metric='RMSE'
+)
+
+stopCluster(cl)
+
+SalePrice_lasso
+
+```
+
+# The glmboost had the best overall performance. Make a submission file with the IDs from the test set and the predictions. This file will be submitted to Kaggle.
+
+```{r}
+
+prediction = predict(SalePrice_glmboost, treatedTest)
+
+submit <- data.frame(id = test$Id, SalePrice = prediction)
+
+write.csv(submit, file = "submission1.csv", row.names = FALSE)
+
+```
+
+
+# Save all data.
+
+```{r}
+
+save.image(file = "SalePrice.RData")
+
+```
+
+### Plan on trying Boruta to filter out variables that are non-important and running these models again. Will make a second submission with those results.
